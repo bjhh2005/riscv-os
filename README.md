@@ -1,1 +1,7 @@
 # OSlab
+
+## Branches
+
+- `main`
+- `develop`
+
