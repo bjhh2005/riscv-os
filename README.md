@@ -1,7 +1,6 @@
-# OSlab
+# riscv-os
 
 ## Branches
 
 - `main`
 - `develop`
-
