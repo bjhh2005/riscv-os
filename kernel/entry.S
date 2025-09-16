@@ -1,21 +1,33 @@
-        # qemu -kernel loads the kernel at 0x80000000
-        # and causes each hart (i.e. CPU) to jump there.
-        # kernel.ld causes the following code to
-        # be placed at 0x80000000.
 .section .text
 .global _entry
+
 _entry:
-        # set up a stack for C.
-        # stack0 is declared in start.c,
-        # with a 4096-byte stack per CPU.
-        # sp = stack0 + ((hartid + 1) * 4096)
-        la sp, stack0
-        li a0, 1024*4
-        csrr a1, mhartid
-        addi a1, a1, 1
-        mul a0, a0, a1
-        add sp, sp, a0
-        # jump to start() in start.c
-        call start
+    # 调试检查点1: 程序开始执行
+    li t0, 0x10000000   # UART基地址
+    li t1, 'S'          # Start标记
+    sb t1, 0(t0)        # 输出'S'
+
+    # 设置栈指针
+    la sp, _stack_end
+    li a0, 4096
+    add sp, sp, a0
+
+    # 调试检查点2: 栈设置完成
+    li t1, 'P'          # Stack Pointer ready
+    sb t1, 0(t0)        # 输出'P'
+
+    # 清零BSS段
+    la a0, __bss_start
+    la a1, __bss_end
+clear_bss:
+    beq a0, a1, clear_done
+    sw zero, (a0)
+    addi a0, a0, 4
+    j clear_bss
+clear_done:
+
+    # 跳转到C主函数
+    call main
+
 spin:
-        j spin
+    j spin

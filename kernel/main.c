@@ -1,45 +1,35 @@
-#include "types.h"
-#include "param.h"
-#include "memlayout.h"
-#include "riscv.h"
-#include "defs.h"
+// kernel/main.c
+#include "uart.h"
 
-volatile static int started = 0;
+// 全局变量测试BSS段清零
+static int bss_test;
+static char test_buffer[64];
 
-// start() jumps here in supervisor mode on all CPUs.
-void
-main()
-{
-  if(cpuid() == 0){
-    consoleinit();
-    printfinit();
-    printf("\n");
-    printf("xv6 kernel is booting\n");
-    printf("\n");
-    kinit();         // physical page allocator
-    kvminit();       // create kernel page table
-    kvminithart();   // turn on paging
-    procinit();      // process table
-    trapinit();      // trap vectors
-    trapinithart();  // install kernel trap vector
-    plicinit();      // set up interrupt controller
-    plicinithart();  // ask PLIC for device interrupts
-    binit();         // buffer cache
-    iinit();         // inode table
-    fileinit();      // file table
-    virtio_disk_init(); // emulated hard disk
-    userinit();      // first user process
-    __sync_synchronize();
-    started = 1;
-  } else {
-    while(started == 0)
-      ;
-    __sync_synchronize();
-    printf("hart %d starting\n", cpuid());
-    kvminithart();    // turn on paging
-    trapinithart();   // install kernel trap vector
-    plicinithart();   // ask PLIC for device interrupts
-  }
-
-  scheduler();        
+void main() {
+    // 检查点1: 证明已进入main函数
+    uart_puts("M"); // Main entered
+    
+    // 检查点2: 验证BSS段是否清零
+    if (bss_test == 0 && test_buffer[0] == 0) {
+        uart_puts("B"); // BSS cleared correctly
+    } else {
+        uart_puts("X"); // BSS clear failed
+    }
+    
+    // 检查点3: 测试栈功能
+    int stack_var = 0x1234;
+    if (stack_var == 0x1234) {
+        uart_puts("T"); // Stack test passed
+    } else {
+        uart_puts("Y"); // Stack test failed
+    }
+    
+    // 检查点4: 完整消息输出
+    // uart_puts("\nMyOS Boot Success!\n");
+    // uart_puts("Debug Sequence: S->P->M->B->T\n");
+    
+    // 主循环
+    while (1) {
+        // 可以添加更多功能
+    }
 }
