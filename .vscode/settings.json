@@ -1,0 +1,6 @@
+{
+    "files.associations": {
+        "*.thr": "json",
+        "cstdlib": "c"
+    }
+}

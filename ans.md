@@ -36,7 +36,26 @@ call start
 
 ### 任务2: 设计最小启动流程
 
+1. 硬件初始化 (Hardware Reset)
+2. OpenSBI 启动 (M-mode)​
+3. 内核入口 (_start)​
+4. C 运行时 (main())
+​
+#### 栈应该放在内存的哪个位置？需要多大？
 
+栈通常放在内存的 ​高地址端​（如 _end 之后），因为栈是 ​向低地址增长​ 的（push 时 sp -= 4）。
+
+#### 是否需要清零BSS段？为什么？
+必须清零 BSS 段​。
+
+​原因​：
+- BSS 段存放 ​未初始化的全局变量​（如 int global_var;），C 标准要求其初始值为 0。
+- 如果不清零，这些变量可能包含 ​随机值​（内存残留数据），导致程序行为不可预测。
+
+
+#### 最简串口输出需要配置哪些寄存器？
+
+发送数据（THR）​​，向 0x10000000 写入字符即可输出
 ### 任务3：实现启动汇编代码
 1. 创建`kernel/enrty.s`
 2. 设置入口点和栈指针
@@ -57,18 +76,98 @@ riscv64-unknown-elf-nm kernel.elf | grep -E "(start|end|text)"
 
 先实现`void uart_putc(char c)`，再实现`void uart_puts(char* s)`.
 
+#### 为什么需要检查LSR的THRE位？
+​THRE​（Transmitter Holding Register Empty，发送保持寄存器空）位是一个关键状态标志，用于判断是否可以发送新数据。
+
+- 位置​：LSR 寄存器的 ​第 5 位​（bit 5）。
+- ​地址​：UART_BASE + 5（假设 UART 基地址是 0x10000000，则 LSR 在 0x10000005）。
+- ​功能​：
+    - THRE = 1：表示 ​THR（Transmit Holding Register）为空，可以写入新数据。
+    - THRE = 0：表示 ​THR 正在发送数据，此时写入新数据会丢失。
+1. 避免数据丢失
+2. 实现阻塞式发送
 ### 任务6：完成C主函数
 
 ```bash
-# 编译所有文件
-riscv64-unknown-elf-gcc -mcmodel=medany -fno-pic -Wall -c kernel/entry.S -o kernel/entry.o
-riscv64-unknown-elf-gcc -mcmodel=medany -fno-pic -Wall -c kernel/main.c -o kernel/main.o
-riscv64-unknown-elf-gcc -mcmodel=medany -fno-pic -Wall -c kernel/uart.c -o kernel/uart.o
-# 链接
-riscv64-unknown-elf-ld -T kernel/kernel.ld -o kernel/kernel \
-    kernel/entry.o kernel/main.o kernel/uart.o
+make
+make run
+make clean
 ```
 
-```bash
-qemu-system-riscv64 -machine virt -kernel kernel/kernel -nographic
-```
+## 实验2：内核printf与清屏功能实现
+
+### 深入理解xv6输出架构
+1. printf()如何解析格式字符串？
+printf() ​逐字符扫描格式字符串，遇到%后解析格式符（d/u/x/s/c），通过va_arg按类型提取参数，调用对应输出函数。
+
+2. printint()如何处理不同进制转换？
+printint() ​迭代取模，用digits[]数组映射数字→字符，逆序输出。支持任意进制（如10/16进制），通过base参数控制。
+
+3. 负数处理有什么特殊考虑？
+​INT64_MIN单独处理​（因-INT64_MIN会溢出），常规负数先输出-再转正数。用sign参数区分有/无符号转换。
+
+`printf() -> consputc() -> uartputc() -> 硬件寄存器`
+1. 每一层的职责是什么？
+- printf()：​格式化解析​（处理%d等格式，数字转字符串）
+- consputc()：​控制台抽象​（统一字符输出接口，可能处理缓冲/转义）
+- uartputc()：​硬件驱动​（操作UART寄存器，实现字节级物理传输）
+- ​硬件寄存器​：直接控制串口设备（如 FIFO 写入、状态检查）
+
+2. 这种设计有什么优势？
+- ​分层解耦​：修改显示设备（如换LCD）只需替换底层，不影响上层逻辑
+- ​复用性​：printf()可复用在不同硬件上（只需实现底层uartputc()）
+- ​可扩展性​：中间层（如consputc()）可插入缓冲/日志等功能
+- ​职责单一​：每层只处理单一任务（如格式解析与硬件操作分离）
+
+xv6为什么不递归进行数字转换
+1. ​内核栈安全​：递归深度不可控，可能溢出有限的内核栈空间
+2. ​性能确定性​：迭代避免函数调用开销，保证O(1)空间复杂度
+3. ​可靠性优先​：内核环境要求行为完全可预测，迭代无栈溢出风险
+
+`printint()`中处理`INT_MIN`的技巧是什么？
+1. ​单独处理末位​：直接记录 INT_MIN 绝对值的最后一位（'8'），避免对 -INT_MIN 取反时的整数溢出。
+2. ​降级转换剩余位​：将剩余数值降为 INT_MAX / base（如 214748364），既保留有效数字位，又确保后续计算不会溢出。
+
+如何实现线程安全的printf?
+
+### 设计输出系统架构
+
+1. 是否需要缓冲区？为什么？
+2. 如何处理格式错误？
+3. 是否支持可变宽度格式？
+
+### 数字转换核心算法
+1. 为什么要讲负数转为正数处理？
+2. 如何避免递归导数的栈溢出？
+3. 字符数组的组织方式。
+
+### 实现格式字符串解析
+
+1. 普通字符直接输出
+2. 遇到%进入格式处理状态
+3. 解析格式符调用相应处理函数
+
+### 实现清屏功能
+- `\033[2J`: 清除整个屏幕
+- `\033[H`: 光标回到左上角
+- `\033[K`: 清除当前行
+
+- 光标定位
+- 颜色输出
+- 清除行
+
+### 综合测试与优化
+
+1. 基本格式化功能
+2. 边界条件处理
+3. 性能测试（大量输出）
+4. 错误恢复测试
+
+1. 字符串输出是否可以批量发生
+2. 数字转换是否可以查表优化
+3. 格式解析是否可以预编译？
+
+
+### 问题
+1. puts和putchar的问题(还不知道为什么)
+

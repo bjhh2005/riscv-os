@@ -1,43 +1,39 @@
-# 工具链定义
+# 编译器设置
 CC = riscv64-unknown-elf-gcc
-AS = riscv64-unknown-elf-as
 LD = riscv64-unknown-elf-ld
-OBJDUMP = riscv64-unknown-elf-objdump
-
-# 编译选项
-CFLAGS = -Wall -O0 -mcmodel=medany -Iinclude
-ASFLAGS = 
+CFLAGS = -mcmodel=medany -fno-pic -Wall -Iinclude -nostdlib -ffreestanding -fno-builtin
 LDFLAGS = -T kernel/kernel.ld -nostdlib
 
-# 目标文件
-OBJS = kernel/entry.o kernel/main.o kernel/uart.o
+# 目标文件列表
+OBJS = \
+    kernel/entry.o \
+    kernel/main.o \
+    kernel/uart.o \
+    kernel/printf.o \
+    kernel/console.o \
+    kernel/string.o \
+	kernel/sleep.o
 
-# 包含目录
-INCLUDE_DIR = include
+# 默认目标：编译并生成 kernel
+all: kernel/kernel
 
-# 默认目标
-all: kernel.elf
-
-# 创建包含目录（如果不存在）
-$(INCLUDE_DIR):
-	mkdir -p $(INCLUDE_DIR)
-
-# 编译规则 - 每个目标文件一个规则
-kernel/entry.o: kernel/entry.S
-	$(AS) $(ASFLAGS) -c $< -o $@
-
-kernel/main.o: kernel/main.c | $(INCLUDE_DIR)
+# 编译规则：.S 和 .c 文件 -> .o 文件
+%.o: %.S
 	$(CC) $(CFLAGS) -c $< -o $@
 
-kernel/uart.o: kernel/uart.c | $(INCLUDE_DIR)
+%.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
-# 链接
-kernel.elf: $(OBJS)
-	$(LD) $(LDFLAGS) $(OBJS) -o $@
+# 链接规则：.o 文件 -> kernel
+kernel/kernel: $(OBJS)
+	$(LD) $(LDFLAGS) -o $@ $^
 
-# 清理
+# 运行 QEMU
+run: kernel/kernel
+	qemu-system-riscv64 -machine virt -kernel kernel/kernel -nographic
+
+# 清理生成的文件
 clean:
-	rm -f $(OBJS) kernel.elf
+	rm -f $(OBJS) kernel/kernel
 
-.PHONY: all clean
+.PHONY: all run clean
