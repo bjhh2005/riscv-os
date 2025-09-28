@@ -28,13 +28,13 @@ void uart_init() {
     *lcr = 0x03;
 }
 
-int puts(const char *s) {
-    while(*s) uart_putc(*s++);
-    uart_putc('\n');
-    return 0;
-}
+// int puts(const char *s) {
+//     while(*s) uart_putc(*s++);
+//     uart_putc('\n');
+//     return 0;
+// }
 
-int putchar(int c) {
-    uart_putc(c);
-    return c;
-}
+// int putchar(int c) {
+//     uart_putc(c);
+//     return c;
+// }
