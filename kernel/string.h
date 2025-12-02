@@ -5,5 +5,6 @@
 
 size_t strlen(const char *s);
 char *strcpy(char *dst, const char *src);
+void *memset(void *s, int c, size_t n);
 
 #endif

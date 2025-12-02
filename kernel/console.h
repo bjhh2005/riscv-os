@@ -24,6 +24,14 @@
 #define BG_CYAN    46
 #define BG_WHITE   47
 
+#define CONSOLE_BUF_SIZE 256
+
+typedef struct {
+    char buf[CONSOLE_BUF_SIZE];
+    int head;
+    int tail;
+} console_buffer_t;
+
 void console_init(void);
 void console_putc(char c);
 void console_puts(const char *s);

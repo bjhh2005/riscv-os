@@ -41,6 +41,13 @@ static void print_num(int64_t num, int base, int sign, int width, int zero_pad) 
     }
 }
 
+static void printptr(uint64_t x) {
+    console_putc('0');
+    console_putc('x');
+    // 调用你现有的 print_num，基数16，无符号，无宽度限制
+    print_num(x, 16, 0, 0, 0);
+}
+
 // 将数字写入缓冲区（返回写入字符数）
 static int write_num(char *buf, int64_t num, int base, int sign) {
     char tmp[20];
@@ -103,6 +110,7 @@ int printf(const char *fmt, ...) {
             case 'x': print_num(va_arg(ap, unsigned), 16, 0, width, zero_pad); break;
             case 's': print_str(va_arg(ap, char*)); break;
             case 'c': console_putc(va_arg(ap, int)); break;
+            case 'p': printptr(va_arg(ap, uint64_t)); break; // 这里现在能找到定义了
             case '%': console_putc('%'); break;
             default:  // 回显无效格式
                 console_putc('%');
@@ -137,6 +145,15 @@ int sprintf(char *buf, const char *fmt, ...) {
                 break;
             }
             case 'c': *buf++ = va_arg(ap, int); break;
+            
+            // [新增] 只有这里改动了一点点，增加了 %p 支持
+            case 'p': {
+                *buf++ = '0';
+                *buf++ = 'x';
+                buf += write_num(buf, va_arg(ap, uint64_t), 16, 0);
+                break;
+            }
+
             case '%': *buf++ = '%'; break;
             default:  // 回显无效格式
                 *buf++ = '%';

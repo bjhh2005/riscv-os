@@ -18,3 +18,12 @@ char *strcpy(char *dst, const char *src) {
     *p = '\0';  // 确保以 '\0' 结尾
     return dst;
 }
+
+void *memset(void *s, int c, size_t n) {
+    unsigned char *p = (unsigned char *)s;
+    unsigned char val = (unsigned char)c;
+    while (n--) {
+        *p++ = val;
+    }
+    return s;
+}

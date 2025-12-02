@@ -168,5 +168,143 @@ xv6为什么不递归进行数字转换
 3. 格式解析是否可以预编译？
 
 
-### 问题
+## 实验3：页表与内存管理
+
+### 深入理解Sv39页表机制
+
+```
+38      30 29    21 20    12 11     0
+| VPN[2] | VPN[1] | VPN[0] | offset |
+```
+- 每个VPN段的作用是什么？
+    - VPN[2]: 三级页表索引，指向二级页表
+    - VPN[1]: 二级页表索引，指向一级页表
+    - VPN[0]: 一级页表索引，指向物理页帧
+    - offset: 页内偏移量，12位表示4KB页大小
+- 为什么是9位而不是其他位数？
+    - 在Sv39中，一个页表项（PTE）占用8字节。一个4KB的物理页刚好可以存放 4096 / 8 = 512个PTE。为了索引这512个项，需要 log2(512) = 9位的索引值。三级页表（3 * 9 = 27位索引）结合12位页内偏移，共39位，可以寻址 512GB 的虚拟地址空间。这种设计在支持足够大的地址空间的同时，对于稀疏的地址空间非常高效，因为只有实际使用的虚拟内存区域才需要分配中间级别的页表
+- V位：有效性标志
+- R/W/X位：读/写/执行权限
+- U位：用户态访问权限
+- 物理页号(PPN)的提取方式
+
+- 为什么选择三级页表而不是二级或四级？
+    - 平衡内存使用和查找效率
+    - 三级页表可以很好地支持稀疏地址空间，不使用的中间页表不需要分配
+- 中间级页表项的R/W/X位应该如何设置？
+  - 中间级页表项的R/W/X位通常设置为0，表示这些页表项本身不可执行/读写
+- 如何理解“页表也存储在物理内存中”
+  - 页表本身也是数据结构，需要存储在物理内存中。CPU的MMU通过物理地址访问页表，将虚拟地址转换为物理地址。
+
+### 分析xv6的物理内存分配器
+`kalloc.c`中的
+```c
+struct run{
+    struct run *next;
+};
+```
+- 这个设计有什么巧妙之处？
+  - 极简设计，每个空闲页只需要存储一个指向下一个空闲页的指针
+  - 不需要额外的元数据，因为页的大小是固定的(4KB)
+  - 利用空闲页本身的空间来存储链表指针，节省内存
+- 为什么不需要额外的元数据存储？
+
+分析`kinit()`的初始化过程：
+- 如何确定可分配的内存范围？
+- 空闲页链表是如何构建的？
+- 为什么要按页对齐？
+
+理解`kalloc()`和`kfree()`的实现：
+- 分配算法的时间复杂度是多少？
+- 如何放置double-free?
+- 这样设计的优缺点
+
+### 设计你的物理内存管理器
+1. 确定内存布局方案
+2. 选择合适的数据结构
+3. 实现分配和释放接口
+
+```c
+void pmm_init(void);
+void* alloc_page(void);
+void free_page(void* page);
+void* alloc_pages(int n);
+```
+1. 如何确定可用内存范围？
+2. 如何处理内存碎片？
+3. 是否支持不同大小的分配？
+4. 添加基本的错误检查。
+
+### 理解xv6的页表管理
+1. 分析`walk()`函数的递归遍历
+    - 如何从虚拟地址提取各级索引？
+    - 遇到无效页表项时如何处理？
+    - 为什么需要`alloc`参数？
+2. 研究`mappages()`的映射建立：
+   - 如何处理地址对齐
+   - 权限位是如何设置的
+   - 映射失败时的清理工作
+3. 理解地址转换宏定义
+   ```c
+    #define PGROUNDUP(sz) (((sz) + PGSIZE - 1) & ~(PGSIZE - 1))
+    #define PGROUNDDOWN(a) (((a)) & ~(PGSIZE - 1))
+    #define PTE_PA(pte) (((pte) >> 10) << 12)
+   ```
+   - 如何避免页表遍历中的无限递归？
+   - 映射过程中的内存分配失败应该如何恢复？
+   - 如何确保页表的一致性？
+
+### 实现你的页表管理系统
+```c
+// 页表类型定义
+typedef uint64* pagetable_t;
+
+// 基本操作接口
+pagetable_t create_pagetable(void);
+int map_page(pagetable_t pt, uint64 va, uint64 pa, int perm);
+void destroy_pagetable(pagetable_t pt);
+
+// 辅助函数，内部使用
+pte_t* walk_create(pagetable_t pt, uint64 va);
+pte_t* walk_lookup(pagetable_t pt, uint64 va);
+```
+
+1. 地址解析实现
+2. 页表遍历实现
+3. 映射建立实现
+
+### 启用虚拟内存
+1. 研读`kvminit()`的内核页表创建：
+    - 哪些内存区域需要映射？
+    - 为什么采用恒等映射？
+    - 设备内存的权限设置
+2. 分析`kvminithart()`的页表激活：
+    - satp寄存器的格式和设置
+    - `sfence.vma`指令的作用
+    - 激活前后的注意事项
+    ```c
+    void kvminit(void){
+        // 1. 创建内核页表
+        kernel_pagetable = create_pagetable();
+
+        // 2. 映射内核代码段（R+X权限）
+        map_region(kernel_pagetable, KERNBASE, KERNBASE, (uint64)etext - KERNBASE, PTE_R | PTE_X);
+
+        // 3. 映射内核数据段(R+W 权限)
+        map_region(kernel_pagetable, (uint64)etext, (uint64)etext, PHYSTOP - (uint64)etext, PTE_R | PTE_W);
+
+        // 4. 映射设备(UART等)
+        map_region(kernel_pagetable, UART0, UART0, PGSIZE, PTE_R | PTE_W);
+    }
+
+    void kvminithart(void){
+        // 激活内核页表
+        w_satp(MAKE_SATP(kernel_pagetable));
+        sfence_vma();
+    }
+
+    ```
+- SATP寄存器格式：`MODE[63:60] | ASID[59:44] | PPN[43:0]`
+- `MODE=8`表示Sv39模式
+- `sfence.vma`用于刷新TLB
 

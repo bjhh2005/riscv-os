@@ -2,6 +2,9 @@
 #include "uart.h"
 #include "printf.h"
 
+
+console_buffer_t console_out_buf;
+
 // 初始化控制台（调用 UART 初始化）
 void console_init(void) {
     uart_init();
@@ -34,4 +37,11 @@ void console_set_color(uint8_t fg_color, uint8_t bg_color) {
     // 使用 sprintf 格式化字符串
     sprintf(color_seq, "\033[%d;%dm", fg_color, bg_color);
     console_puts(color_seq);
+}
+
+void console_flush(void) {
+    while (console_out_buf.tail != console_out_buf.head) {
+        uart_putc(console_out_buf.buf[console_out_buf.tail]);
+        console_out_buf.tail = (console_out_buf.tail + 1) % CONSOLE_BUF_SIZE;
+    }
 }
