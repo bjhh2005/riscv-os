@@ -61,7 +61,7 @@ void main(void) {
     printf("\n=== TEST 1: Concurrency & Context Save/Restore ===\n");
     printf("Calculating Fibonacci(25). Expect 'timer: tick' lines to appear below:\n");
 
-    volatile int n = 25;
+    volatile int n = 33;
     int result = 0;
     
     for(int round = 1; round <= 3; round++) {

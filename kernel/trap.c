@@ -11,7 +11,7 @@ extern void sbi_set_timer(uint64 stime_value);
 #define IRQ_TIMER 5  // Supervisor Timer Interrupt (scause exception code)
 
 #define CLOCK_FREQ 10000000 
-#define INTERVAL (CLOCK_FREQ / 1) // 1秒一次 (用于测试)
+#define INTERVAL (CLOCK_FREQ / 100) // 10ms一次 (用于测试)
 
 // --- 数据结构定义 ---
 
