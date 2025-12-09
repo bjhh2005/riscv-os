@@ -30,6 +30,7 @@ typedef uint64_t pde_t;      // 页目录项类型（假设64位系统）
 typedef uint32_t size_t;
 typedef int32_t ssize_t;
 
+#define NULL ((void *)0)
 
 #endif // _TYPES_H_
 

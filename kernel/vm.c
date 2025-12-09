@@ -3,7 +3,6 @@
 #include "kalloc.h"
 #include "vm.h"
 #include "printf.h"
-#include "stddef.h"
 #include "string.h"
 #include "memlayout.h"
 #include "riscv.h"
