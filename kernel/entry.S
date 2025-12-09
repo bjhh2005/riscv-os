@@ -1,54 +1,45 @@
-# entry.S
-# 使用 .text.entry 段名，配合 linker script 确保它放在最前面
+# kernel/entry.S
+# 修复版：适应 OpenSBI 的 S-Mode 启动
+
 .section .text.entry
 .global _start
 
 _start:
-    # 1. 调试输出 'S' (Start)
-    # 向 UART 串口发送字符，表明机器已上电并开始执行指令
-    li t0, 0x10000000
-    li t1, 'S'
-    sb t1, 0(t0)
-
-    # 2. 设置栈指针
-    # 注意：RISC-V 中栈是向下生长的，所以 SP 指向高地址
+    # 1. 设置栈指针
     la sp, stack_top
-    
-    # 调试输出 'P' (Pointer/Stack set) - 栈设置完成
-    li t1, 'P'
+
+    # 2. [调试] 打印 'K' (Kernel Loaded)
+    # 这证明 OpenSBI 成功跳转到了这里
+    li t0, 0x10000000
+    li t1, 'K'
     sb t1, 0(t0)
 
-    # 3. 清零 BSS 段
-    la a0, _bss_start       # 从 linker script 获取 bss 起始地址
-    la a1, _bss_end         # 从 linker script 获取 bss 结束地址
-    call clear_bss          # 调用清零函数
+    # 3. 清零 BSS
+    la a0, _bss_start
+    la a1, _bss_end
+    call clear_bss
 
-    # 调试输出 'B' (BSS cleared) - BSS 清零完成
-    li t1, 'B'
-    sb t1, 0(t0)
-
-    # 4. 跳转到 C 语言主函数
+    # 4. 跳转到 C 主函数
+    # [关键修改] 改回 call main
+    # 因为 OpenSBI 已经把我们放在了 S-Mode，start.c (M-Mode代码) 会导致崩溃
     call main
 
-    # 5. 如果 main 返回（不应该发生），输出 'E' 并死循环
-    li t1, 'E'
-    sb t1, 0(t0)
+    # 5. 死循环
 spin:
     j spin
 
-# --- BSS 清零函数 ---
+# --- BSS 清零 ---
 clear_bss:
-    bge a0, a1, clear_done  # 如果 current >= end，结束
-clear_loop:
-    sb zero, 0(a0)          # 将当前地址字节清零
-    addi a0, a0, 1          # 指针 + 1
-    blt a0, a1, clear_loop  # 如果 current < end，继续循环
+    bge a0, a1, clear_done
+    sb zero, 0(a0)
+    addi a0, a0, 1
+    j clear_bss
 clear_done:
     ret
 
-# --- 栈空间定义 ---
+# --- 栈空间 ---
 .section .bss
-    .align 4                # 16字节对齐
+    .align 4
     .global stack_top
-    .space 4096 * 16        # 分配 64KB 栈空间
-stack_top:                  # 栈顶标签（位于空间末尾）
+    .space 4096 * 16
+stack_top:

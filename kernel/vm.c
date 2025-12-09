@@ -1,5 +1,3 @@
-
-
 // 虚拟内存管理相关实现
 #include "types.h"
 #include "kalloc.h"
@@ -39,7 +37,7 @@ void kvminit(void) {
     // CLINT 通常占用 0x10000 (64KB)
     map_region(kernel_pagetable, CLINT, CLINT, 0x10000, PTE_R | PTE_W);
 
-    // --- 新增：映射 PLIC (用于中断控制器，虽然现在可能还没用，但以后必用) ---
+    // --- 新增：映射 PLIC (用于中断控制器) ---
     // PLIC 通常占用 0x400000 (4MB)
     map_region(kernel_pagetable, PLIC, PLIC, 0x400000, PTE_R | PTE_W);
 }

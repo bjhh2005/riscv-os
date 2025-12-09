@@ -114,7 +114,6 @@ void buddy_free(void *pa) {
   while (order < MAX_ORDER) {
     uint64 buddy_pa = get_buddy(block_pa, order);
     
-    // --- 修复：删除了未使用的 buddy_idx 变量 ---
     
     // 检查伙伴是否越界
     if (buddy_pa < (uint64)end || buddy_pa >= PHYSTOP) break;
