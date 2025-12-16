@@ -162,6 +162,7 @@ void *kalloc(void) {
 
 // 适配接口：释放内存
 void kfree(void *pa) {
+  if(pa == 0) return;
   buddy_free(pa);
 }
 
