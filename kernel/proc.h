@@ -3,14 +3,14 @@
 
 #include "types.h"
 #include "riscv.h"
-
-// 保存内核上下文切换时的寄存器 (switch.S 使用)
-// 只需要保存 Callee-saved 寄存器
-struct context {
+#include "spinlock.h"
+#include "vm.h" // 引用你的 vm.h 以获取 pagetable_t 定义
+#include"param.h"
+// 进程调度上下文 (Swtch Context)
+// 仅保存 Callee-saved 寄存器
+struct kcontext {
   uint64 ra;
   uint64 sp;
-
-  // Callee-saved
   uint64 s0;
   uint64 s1;
   uint64 s2;
@@ -25,61 +25,52 @@ struct context {
   uint64 s11;
 };
 
-// 发生中断/异常时，保存用户态所有寄存器的结构
-// 存放在 TRAMPOLINE 下面的 TRAPFRAME 页中
-struct trapframe {
-  /* 0 */ uint64 kernel_satp;   // kernel page table
-  /* 8 */ uint64 kernel_sp;     // top of process's kernel stack
-  /* 16 */ uint64 kernel_trap;   // usertrap()
-  /* 24 */ uint64 epc;           // saved user program counter
-  /* 32 */ uint64 kernel_hartid; // saved kernel tp
-  
-  /* 40 */ uint64 ra;
-  /* 48 */ uint64 sp;
-  /* 56 */ uint64 gp;
-  /* 64 */ uint64 tp;
-  /* 72 */ uint64 t0;
-  /* 80 */ uint64 t1;
-  /* 88 */ uint64 t2;
-  /* 96 */ uint64 s0;
-  /* 104 */ uint64 s1;
-  /* 112 */ uint64 a0;
-  /* 120 */ uint64 a1;
-  /* 128 */ uint64 a2;
-  /* 136 */ uint64 a3;
-  /* 144 */ uint64 a4;
-  /* 152 */ uint64 a5;
-  /* 160 */ uint64 a6;
-  /* 168 */ uint64 a7;
-  /* 176 */ uint64 s2;
-  /* 184 */ uint64 s3;
-  /* 192 */ uint64 s4;
-  /* 200 */ uint64 s5;
-  /* 208 */ uint64 s6;
-  /* 216 */ uint64 s7;
-  /* 224 */ uint64 s8;
-  /* 232 */ uint64 s9;
-  /* 240 */ uint64 s10;
-  /* 248 */ uint64 s11;
-  /* 256 */ uint64 t3;
-  /* 264 */ uint64 t4;
-  /* 272 */ uint64 t5;
-  /* 280 */ uint64 t6;
+// CPU 状态
+struct cpu {
+  struct proc *proc;          // 当前运行的进程
+  struct kcontext context;    // 调度器的上下文
+  int noff;                   // 关中断深度
+  int intena;                 // 关中断前的状态
 };
 
-// 简单的进程状态枚举
+// 进程状态
 enum procstate { UNUSED, USED, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
 
-// 简化的 proc 结构体，为下个实验占位
+// 进程控制块
 struct proc {
-  enum procstate state;        // 进程状态
-  int pid;                     // 进程ID
-  struct context context;      // 内核上下文 (switch.S)
-  struct trapframe *trapframe; // 用户态中断帧 (映射到固定物理地址)
-  
-  uint64 kstack;               // 内核栈虚拟地址
-  uint64 sz;                   // 进程内存大小
+  struct spinlock lock;
+
+  // p->lock 保护以下字段:
+  enum procstate state;        
+  void *chan;                  // 休眠通道
+  int killed;                  
+  int xstate;                  
+  int pid;                     
+
+  // 进程私有字段:
+  uint64 kstack;               // 内核栈地址
+  uint64 sz;                   // 内存大小
   pagetable_t pagetable;       // 用户页表
+  struct trapframe *trapframe; // 指向 Trapframe 页 (结构体定义在 trap.h 或此处前置声明)
+  struct kcontext context;     // switch 在这里切换
+  char name[16];               
+  struct proc *parent;         
 };
+
+// 导出全局变量
+extern struct cpu cpus[NCPU];
+extern struct proc proc[NPROC];
+
+// 导出函数接口
+void procinit(void);
+struct proc* allocproc(void);
+void scheduler(void);
+void sched(void);
+void yield(void);
+void sleep(void *chan, struct spinlock *lk);
+void wakeup(void *chan);
+int cpuid(void);
+struct cpu* mycpu(void);
+struct proc* myproc(void);
 
 #endif

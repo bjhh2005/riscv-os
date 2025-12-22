@@ -2,6 +2,7 @@
 #include "riscv.h"
 #include "printf.h"
 #include "uart.h" 
+#include "memlayout.h"
 
 #define CLOCK_FREQ 10000000 
 #define INTERVAL   (CLOCK_FREQ / 100) 
@@ -83,45 +84,36 @@ void handle_syscall(struct context *ctx) {
     }
 }
 
-// 智能异常恢复逻辑 (修复版)
+
 void handle_fault(uint64 scause, uint64 sepc, uint64 stval, uint64 *new_epc) {
     char *fault_name = "Unknown";
-    int is_fatal = 0; // 标记是否致命
+    int is_fatal = 0;
 
     switch (scause) {
-        case CAUSE_ILLEGAL_INSTRUCTION: fault_name = "Illegal Instruction"; break;
-        case CAUSE_STORE_PAGE_FAULT:    fault_name = "Store Page Fault"; break;
-        case CAUSE_LOAD_PAGE_FAULT:     fault_name = "Load Page Fault"; break;
-        
-        // 【关键】必须拦截断点，否则跳过会导致跑飞
-        case CAUSE_BREAKPOINT:          fault_name = "Breakpoint"; is_fatal = 1; break;
-        // 【关键】如果取指本身出错，不能读取指令，必须停机
-        case CAUSE_FETCH_PAGE_FAULT:    fault_name = "Instruction Page Fault"; is_fatal = 1; break;
+        case 2:  fault_name = "Illegal Instruction"; break;
+        case 12: fault_name = "Instruction Page Fault"; is_fatal = 1; break;
+        case 13: fault_name = "Load Page Fault"; is_fatal = 1; break;
+        case 15: fault_name = "Store Page Fault"; is_fatal = 1; break;
+        default: fault_name = "Unknown Trap"; break;
     }
 
     printf(RED "\n[System Trap] Exception Caught!" RESET "\n");
-    printf("   Type: %s (scause=%d)\n", fault_name, scause);
-    printf("   Addr: 0x%p (stval)\n", stval);
-    printf("   Code: 0x%p (sepc)\n", sepc);
+    printf("   Type: %s (scause=%d)\n", fault_name, (int)scause); 
+    printf("   Addr: 0x%x (stval)\n", (unsigned int)stval); // 或者是 (uint64)
+    printf("   Code: 0x%x (sepc)\n", (unsigned int)sepc);
 
-    if (is_fatal) {
-        printf(RED "   [FATAL] Cannot recover from this exception. System Halted.\n" RESET);
-        while(1); // 死循环停机
+    // 【关键修复】检查是否在内核区域发生错误
+    // 0x80000000 以上通常是内核物理内存或映射区域
+    // 如果在内核态发生缺页或非法指令，必须停止系统，不能跳过！
+    if (sepc >= KERNBASE || is_fatal) {
+        printf(RED "!!! KERNEL PANIC: Unrecoverable Fault in Kernel Mode !!!\n" RESET);
+        printf(RED "System Halted. Please check the code at sepc.\n" RESET);
+        while(1); // 死循环保留现场
     }
 
-    // 读取指令判断长度 (普通4字节，压缩2字节)
-    uint32 instr_opcode = *(uint16_t*)sepc; 
-    int step = 2; 
-
-    if ((instr_opcode & 0x3) == 0x3) {
-        step = 4; 
-    }
-
-    printf(YELLOW "   -> Action: Skipping %d-byte instruction...\n" RESET, step);
-    *new_epc = sepc + step;
-    
-    // 延时，防止连续错误刷屏
-    for(volatile int i=0; i<2000000; i++);
+    // 只有在未来实现用户态(User Mode) Copy-On-Write 时，
+    // 才在这里处理缺页中断。现在，所有异常一律视为致命。
+    while(1);
 }
 
 // --- 注册与分发 ---
