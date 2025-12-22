@@ -14,6 +14,9 @@
 #define LOGSIZE      10    // 磁盘日志的最大数据扇区数
 #define HZ           10    // 定时器频率（可选）
 #define N_CALLSTK    15    // 调用栈深度（特定实现）
+// MLFQ 调度参数
+#define NPRIO 3             // 优先级队列数量
+#define AGING_INTERVAL 100  // 老化周期 (ticks)
 
 #endif
 

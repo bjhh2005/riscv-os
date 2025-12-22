@@ -81,7 +81,8 @@ void            printf(char*, ...);
 void            sprintf(char*, char*, ...);
 void            panic(char*) __attribute__((noreturn));
 
-
+// swtch.S
+void            swtch(struct context*, struct context*);
 
 // syscall.c
 void            syscall(void);
@@ -100,7 +101,7 @@ void            plic_complete(int);
 // uart.c
 void            uart_init(void);
 void            uartintr(void);
-void            uart_putc(int);
+void            uart_putc(char);
 void            uart_puts(char*);
 void            uartputc_sync(int);
 int             uart_getc(void);

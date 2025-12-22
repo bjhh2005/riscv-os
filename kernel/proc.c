@@ -17,6 +17,10 @@ struct spinlock wait_lock;
 extern void forkret(void); // 声明
 extern char trampoline[];  // trampoline.S
 
+// [MLFQ] 定义每个优先级的时间片长度
+// 0号队列: 1 tick, 1号队列: 4 ticks, 2号队列: 8 ticks
+int time_slices[NPRIO] = {1, 4, 8};
+
 // ----------------------------------------------------------------
 // 修复后的 initcode (Test: Hello -> Fork -> Parent prints P, Child prints C)
 // ----------------------------------------------------------------
@@ -165,6 +169,11 @@ static struct proc* allocproc(void) {
 found:
   p->pid = allocpid();
   p->state = USED;
+
+  // [MLFQ 初始化]
+  p->priority = 0;       // 默认最高优先级
+  p->ticks_consumed = 0; // 消耗时间清零
+
 
   if((p->trapframe = (struct trapframe *)kalloc()) == 0){
     release(&p->lock);
@@ -325,24 +334,82 @@ int wait(uint64 addr) {
   }
 }
 
-void scheduler(void) {
+// --------------------------------------------------------------
+// MLFQ 调度器
+// --------------------------------------------------------------
+void
+scheduler(void)
+{
   struct proc *p;
   struct cpu *c = mycpu();
+  
+  // 老化计数器
+  int aging_timer = 0;
+
   c->proc = 0;
   for(;;){
+    // 开启中断，避免死锁
     intr_on();
-    for(p = proc; p < &proc[NPROC]; p++) {
-      acquire(&p->lock);
-      if(p->state == RUNNABLE) {
-        printf("[Sched] Switch to PID %d (%s)\n", p->pid, p->name);
-        p->state = RUNNING;
-        c->proc = p;
-        extern void swtch(struct context*, struct context*);
-        swtch(&c->context, &p->context);
-        printf("[Sched] Return from PID %d\n", p->pid);
-        c->proc = 0;
-      }
-      release(&p->lock);
+
+    int found_proc = 0;
+
+    // [老化机制 Aging]
+    // 简单实现：每次循环累加，达到阈值则重置所有进程优先级
+    // 注意：真实OS通常在时钟中断里做，这里为了简化逻辑放在调度循环里
+    aging_timer++;
+    if (aging_timer >= AGING_INTERVAL) {
+        for(p = proc; p < &proc[NPROC]; p++){
+            acquire(&p->lock);
+            if(p->state == RUNNABLE) {
+                p->priority = 0;        // 提升回最高级
+                p->ticks_consumed = 0;  // 清空消耗
+            }
+            release(&p->lock);
+        }
+        aging_timer = 0;
+        // printf("[Sched] Aging executed!\n");
+    }
+
+    // [MLFQ 核心循环]
+    // 外层循环：从最高优先级(0) 到 最低优先级(NPRIO-1)
+    for (int prio = 0; prio < NPRIO; prio++) {
+        
+        // 内层循环：遍历进程表
+        for(p = proc; p < &proc[NPROC]; p++) {
+          acquire(&p->lock);
+          
+          // 只有 RUNNABLE 且 优先级符合 的进程才能运行
+          if(p->state == RUNNABLE && p->priority == prio) {
+            
+            // 找到进程，准备运行
+            p->state = RUNNING;
+            c->proc = p;
+            
+            // [调试打印] 可选
+            // printf("[Sched] Run PID %d (Prio %d)\n", p->pid, p->priority);
+
+            swtch(&c->context, &p->context);
+            
+            // 进程运行返回 (通常是因为中断 yield 或者 exit/sleep)
+            c->proc = 0;
+            found_proc = 1;
+            
+            release(&p->lock);
+            
+            // [关键] MLFQ 抢占逻辑
+            // 如果我们在高优先级队列找到了进程并运行了它，
+            // 运行完后，我们必须立即重新从最高优先级开始扫描。
+            // 这样保证了如果有新进程(Prio 0)到来，能被立即调度。
+            goto next_iteration; 
+          }
+          release(&p->lock);
+        }
+    }
+
+next_iteration:
+    // 如果没有任何 RUNNABLE 进程，CPU 需要休息一下避免空转过热
+    if (!found_proc) {
+        // 在真实硬件上这里会用 wfi 指令，qemu 里无所谓
     }
   }
 }

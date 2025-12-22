@@ -95,6 +95,11 @@ struct proc {
   int xstate;                  // 退出状态码 (供父进程 wait 读取)
   int pid;                     // 进程 ID
 
+  // [MLFQ 新增字段]
+  int priority;                // 当前优先级 (0=High, 1=Mid, 2=Low)
+  int ticks_consumed;          // 在当前优先级已消耗的时间片
+  int wait_ticks;              // 等待时间
+
   // 使用以下字段需要持有 wait_lock:
   struct proc *parent;         // 父进程
 
