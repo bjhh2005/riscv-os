@@ -28,6 +28,13 @@ void kfree(void *pa);
  * @return 成功返回第一页的起始地址，失败返回0
  * @note 此实现不保证物理连续性，实际系统中需要更复杂的算法
  */
-void* kalloc_pages(int n);
 
+void kref_inc(void *pa);
+
+/**
+ * 分配连续的多个物理页 (Buddy System 支持)
+ * @param n 请求的页数
+ * @return 成功返回第一页的起始地址，失败返回0
+ */
+void* kalloc_pages(int n);
 #endif // KALLOC_H

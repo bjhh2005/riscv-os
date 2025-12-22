@@ -2,5 +2,6 @@
     "files.associations": {
         "*.thr": "json",
         "cstdlib": "c"
-    }
+    },
+    "C_Cpp.errorSquiggles": "enabled"
 }

@@ -26,5 +26,8 @@ static inline uint64 sbi_call(uint64 extension, uint64 function, uint64 arg0, ui
 // 使用 SBI Legacy Extension (EID=0x00) 或者 Time Extension (EID=0x54494D45)
 // 这里为了简单兼容性，使用 OpenSBI 推荐的 Legacy Set Timer (EID=0, FID=0)
 void sbi_set_timer(uint64 stime_value) {
-    sbi_call(0x00, 0, stime_value, 0, 0);
+    // SBI Legacy Extension: Set Timer (EID=0x0)
+  asm volatile("mv a0, %0" : : "r" (stime_value));
+  asm volatile("li a7, 0x0"); 
+  asm volatile("ecall");
 }

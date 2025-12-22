@@ -1,172 +1,182 @@
-#include "printf.h"
-#include "console.h"
-#include "string.h"
+#include "types.h"
+#include "riscv.h"
+#include "defs.h"
+#include "param.h"
+#include "spinlock.h"
 #include <stdarg.h>
-#include <stdint.h>
 
-// 数字字符查找表
-static const char digits[] = "0123456789abcdef";
+struct spinlock pr;
 
-// 打印数字到控制台（带符号处理）
-static void print_num(int64_t num, int base, int sign, int width, int zero_pad) {
-    char buf[20]; // 足够存放64位二进制数
-    int i = 0;
-
-    // 处理负数
-    if (sign && num < 0) {
-        console_putc('-');
-        num = -num;
-    }
-
-    // 特殊处理INT64_MIN
-    if (num == INT64_MIN) {
-        buf[i++] = '8'; // -2^63的最后一位
-        num = INT64_MAX / base;
-    }
-
-    // 数字转换
-    do {
-        buf[i++] = digits[num % base];
-    } while ((num /= base) > 0);
-
-     // 零填充或空格填充
-    while (i < width) {
-        console_putc(zero_pad ? '0' : ' ');
-        width--;
-    }
-
-    // 逆序输出
-    while (--i >= 0) {
-        console_putc(buf[i]);
-    }
+void
+printfinit(void)
+{
+  initlock(&pr, "pr");
 }
 
-static void printptr(uint64_t x) {
-    console_putc('0');
-    console_putc('x');
-    // 调用你现有的 print_num，基数16，无符号，无宽度限制
-    print_num(x, 16, 0, 0, 0);
+// [关键修复] 将 int 改为 long (64位)
+static void
+printint(long xx, int base, int sign)
+{
+  static char digits[] = "0123456789abcdef";
+  char buf[32]; // 增加缓冲区大小以容纳64位数字
+  int i;
+  uint64 x;
+
+  if(sign && (sign = xx < 0))
+    x = -xx;
+  else
+    x = xx;
+
+  i = 0;
+  do {
+    buf[i++] = digits[x % base];
+  } while((x /= base) != 0);
+
+  if(sign)
+    buf[i++] = '-';
+
+  while(--i >= 0)
+    console_putc(buf[i]);
 }
 
-// 将数字写入缓冲区（返回写入字符数）
-static int write_num(char *buf, int64_t num, int base, int sign) {
-    char tmp[20];
-    int i = 0, start = 0;
+void
+printf(char *fmt, ...)
+{
+  va_list ap;
+  int i, c;
+  char *s;
 
-    if (sign && num < 0) {
-        *buf++ = '-';
-        start++;
-        num = -num;
+  int locking = pr.locked;
+  if(!locking) acquire(&pr);
+
+  if (fmt == 0)
+    panic("null fmt");
+
+  va_start(ap, fmt);
+  for(i = 0; (c = fmt[i] & 0xff) != 0; i++){
+    if(c != '%'){
+      console_putc(c);
+      continue;
     }
-
-    do {
-        tmp[i++] = digits[num % base];
-    } while ((num /= base) > 0);
-
-    while (--i >= 0) {
-        *buf++ = tmp[i];
-        start++;
+    c = fmt[++i] & 0xff;
+    if(c == 0)
+      break;
+    switch(c){
+    case 'd':
+      printint(va_arg(ap, int), 10, 1);
+      break;
+    case 'x':
+      // [关键修复] 显式转换 long
+      printint(va_arg(ap, int), 16, 1);
+      break;
+    case 'p':
+      // [关键修复] 显式转换 uint64 (也就是 long)
+      printint((uint64)va_arg(ap, void*), 16, 1);
+      break;
+    case 's':
+      if((s = va_arg(ap, char*)) == 0)
+        s = "(null)";
+      for(; *s; s++)
+        console_putc(*s);
+      break;
+    case 'c':  // [新增] 处理 %c
+      console_putc(va_arg(ap, int));
+      break;
+    case '%':
+      console_putc('%');
+      break;
+    default:
+      console_putc('%');
+      console_putc(c);
+      break;
     }
-    return start;
+  }
+  va_end(ap);
+
+  if(!locking) release(&pr);
 }
 
-// 安全字符串打印
-static void print_str(const char *s) {
-    if (!s) s = "(null)";
-    while (*s) console_putc(*s++);
+// [同样修复 sprintf]
+static void
+sprintint(char **buf, long xx, int base, int sign)
+{
+  static char digits[] = "0123456789abcdef";
+  char temp[32];
+  int i;
+  uint64 x;
+
+  if(sign && (sign = xx < 0))
+    x = -xx;
+  else
+    x = xx;
+
+  i = 0;
+  do {
+    temp[i++] = digits[x % base];
+  } while((x /= base) != 0);
+
+  if(sign)
+    temp[i++] = '-';
+
+  while(--i >= 0)
+    *(*buf)++ = temp[i];
 }
 
-int printf(const char *fmt, ...) {
-    va_list ap;
-    va_start(ap, fmt);
+void
+sprintf(char *dst, char *fmt, ...)
+{
+  va_list ap;
+  int i, c;
+  char *s;
+  char *d = dst;
 
-    while (*fmt) {
-        if (*fmt != '%') {
-            console_putc(*fmt++);
-            continue;
-        }
-
-        fmt++; // 跳过%
-
-        int width = 0;
-        int zero_pad = 0;
-
-        // 处理填充和宽度
-        if (*fmt == '0') {
-            zero_pad = 1;
-            fmt++;
-        }
-        while (*fmt >= '0' && *fmt <= '9') {
-            width = width * 10 + (*fmt++ - '0');
-        }
-
-        switch (*fmt++) {
-            case 'd': 
-                print_num(va_arg(ap, int), 10, 1, width, zero_pad); 
-                break;
-            case 'u':
-                print_num(va_arg(ap, unsigned), 10, 0, width, zero_pad);
-                break;
-            case 'x': print_num(va_arg(ap, unsigned), 16, 0, width, zero_pad); break;
-            case 's': print_str(va_arg(ap, char*)); break;
-            case 'c': console_putc(va_arg(ap, int)); break;
-            case 'p': printptr(va_arg(ap, uint64_t)); break; // 这里现在能找到定义了
-            case '%': console_putc('%'); break;
-            default:  // 回显无效格式
-                console_putc('%');
-                console_putc(fmt[-1]);
-        }
+  va_start(ap, fmt);
+  for(i = 0; (c = fmt[i] & 0xff) != 0; i++){
+    if(c != '%'){
+      *d++ = c;
+      continue;
     }
-
-    va_end(ap);
-    return 0;
-}
-
-int sprintf(char *buf, const char *fmt, ...) {
-    va_list ap;
-    char *start = buf;
-    va_start(ap, fmt);
-
-    while (*fmt) {
-        if (*fmt != '%') {
-            *buf++ = *fmt++;
-            continue;
-        }
-
-        fmt++; // 跳过%
-        switch (*fmt++) {
-            case 'd': buf += write_num(buf, va_arg(ap, int), 10, 1); break;
-            case 'u': buf += write_num(buf, va_arg(ap, unsigned), 10, 0); break;
-            case 'x': buf += write_num(buf, va_arg(ap, unsigned), 16, 0); break;
-            case 's': {
-                char *s = va_arg(ap, char*);
-                if (!s) s = "(null)";
-                buf += strlen(strcpy(buf, s));
-                break;
-            }
-            case 'c': *buf++ = va_arg(ap, int); break;
-            
-            // [新增] 只有这里改动了一点点，增加了 %p 支持
-            case 'p': {
-                *buf++ = '0';
-                *buf++ = 'x';
-                buf += write_num(buf, va_arg(ap, uint64_t), 16, 0);
-                break;
-            }
-
-            case '%': *buf++ = '%'; break;
-            default:  // 回显无效格式
-                *buf++ = '%';
-                *buf++ = fmt[-1];
-        }
+    c = fmt[++i] & 0xff;
+    if(c == 0)
+      break;
+    switch(c){
+    case 'd':
+      sprintint(&d, va_arg(ap, int), 10, 1);
+      break;
+    case 'x':
+      sprintint(&d, va_arg(ap, int), 16, 1);
+      break;
+    case 'p':
+      sprintint(&d, (uint64)va_arg(ap, void*), 16, 1);
+      break;
+    case 's':
+      if((s = va_arg(ap, char*)) == 0)
+        s = "(null)";
+      while(*s)
+        *d++ = *s++;
+      break;
+    case 'c': // [新增] 处理 %c
+      *d++ = va_arg(ap, int);
+      break;
+    case '%':
+      *d++ = '%';
+      break;
+    default:
+      *d++ = '%';
+      *d++ = c;
+      break;
     }
-
-    *buf = '\0';
-    va_end(ap);
-    return buf - start;
+  }
+  *d = '\0';
+  va_end(ap);
 }
 
-void panic(const char *s) {
-    printf("PANIC: %s\n", s ? s : "Unknown error");
-    for(;;); // 系统挂起
+void
+panic(char *s)
+{
+  printf("panic: ");
+  printf(s);
+  printf("\n");
+  for(;;)
+    ;
 }

@@ -2,11 +2,13 @@
 #define __SPINLOCK_H__
 
 #include "types.h"
+struct cpu;
 
 struct spinlock {
   uint locked;       // 是否被锁
   char *name;        // 锁名字
   int cpu_id;        // 持有该锁的 CPU ID (调试用)
+  struct cpu *cpu;   // 持有该锁的 CPU 指针
 };
 
 void initlock(struct spinlock *lk, char *name);

@@ -24,6 +24,7 @@
 #define PA2PTE(pa) ((((uint64)pa) >> 12) << 10)
 #define PTE2PA(pte) (((pte) >> 10) << 12)
 #define PTE_FLAGS(pte) ((pte) & 0x3FF)
+#define PTE_COW (1L << 8)
 
 // --- 4. 页表索引宏 (Sv39) ---
 #define PXSHIFT(level)  (PGSHIFT+(9*(level)))
@@ -125,6 +126,13 @@ static inline void w_sie(uint64 x) {
 
 static inline void w_sip(uint64 x) {
   asm volatile("csrw sip, %0" : : "r" (x));
+}
+
+// [新增] 读取 sip 寄存器
+static inline uint64 r_sip() {
+  uint64 x;
+  asm volatile("csrr %0, sip" : "=r" (x) );
+  return x;
 }
 
 // --- PMP (Physical Memory Protection) ---

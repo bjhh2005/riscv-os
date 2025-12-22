@@ -1,3 +1,6 @@
+# 定义内核目录变量
+K = kernel
+
 # 工具链设置
 CC = riscv64-unknown-elf-gcc
 LD = riscv64-unknown-elf-ld
@@ -5,75 +8,81 @@ OBJCOPY = riscv64-unknown-elf-objcopy
 OBJDUMP = riscv64-unknown-elf-objdump
 
 # 编译选项
-# -Ikernel: 防止头文件在 kernel 目录下时找不到
-# -mcmodel=medany: 允许内核代码在任意地址运行
-# -g: 生成调试信息，方便 gdb 调试
-CFLAGS = -mcmodel=medany -fno-pic -Wall -Werror -O2 -g
-CFLAGS += -Iinclude -Ikernel -nostdlib -ffreestanding -fno-builtin
-CFLAGS += -MD -MP # 自动生成依赖关系
+# -I. : 允许代码中使用 #include "kernel/defs.h" 这种路径
+CFLAGS = -Wall -Werror -O2 -fno-omit-frame-pointer -ggdb -gdwarf-2
+CFLAGS += -mcmodel=medany -ffreestanding -fno-common -nostdlib -mno-relax
+CFLAGS += -I. -fno-stack-protector
+CFLAGS += -fno-pie -no-pie
 
 # 链接选项
-LDFLAGS = -T kernel/kernel.ld -nostdlib -static
+LDFLAGS = -z max-page-size=4096 -T $K/kernel.ld
 
-# 源文件列表
-# wildcard 自动查找 kernel 目录下的所有 .c 和 .S 文件
-SRCS = $(wildcard kernel/*.c)
-OBJS = $(SRCS:.c=.o)
-ASM_SRCS = $(wildcard kernel/*.S)
-ASM_OBJS = $(ASM_SRCS:.S=.o)
+# =================================================================
+# 核心对象文件列表
+# 注意：这里显式列出文件，是为了排除尚未实现的文件系统模块 (fs.c, exec.c 等)
+# =================================================================
+OBJS = \
+  $K/entry.o \
+  $K/start.o \
+  $K/console.o \
+  $K/printf.o \
+  $K/uart.o \
+  $K/kalloc.o \
+  $K/spinlock.o \
+  $K/string.o \
+  $K/main.o \
+  $K/vm.o \
+  $K/proc.o \
+  $K/swtch.o \
+  $K/trampoline.o \
+  $K/trap.o \
+  $K/syscall.o \
+  $K/sysproc.o \
+  $K/plic.o \
+  $K/sbi.o \
+  $K/kernelvec.o
+
+# 下面这些是文件系统相关的，暂时注释掉
+# 等实现 Step 5 时解开注释
+# $K/bio.o \
+# $K/fs.o \
+# $K/log.o \
+# $K/file.o \
+# $K/pipe.o \
+# $K/exec.o \
 
 # 最终目标文件
-TARGET = kernel/kernel
-
-# 依赖文件 (.d)
-DEPS = $(OBJS:.o=.d)
+TARGET = $K/kernel
 
 # 伪目标
-.PHONY: all run debug disasm clean info
+.PHONY: all clean qemu run
 
-# 默认目标：编译内核
+# 默认目标
 all: $(TARGET)
 
 # 链接内核
-$(TARGET): $(OBJS) $(ASM_OBJS)
-	$(LD) $(LDFLAGS) -o $@ $^
-	@echo "LD    $@"
+$(TARGET): $(OBJS) $K/kernel.ld
+	$(LD) $(LDFLAGS) -o $(TARGET) $(OBJS)
+	$(OBJDUMP) -S $(TARGET) > $K/kernel.asm
+	$(OBJDUMP) -t $(TARGET) | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $K/kernel.sym
 
 # 编译 C 文件
-# %.o 依赖 %.c
-%.o: %.c
-	$(CC) $(CFLAGS) -c $< -o $@
-	@echo "CC    $<"
+$K/%.o: $K/%.c
+	$(CC) $(CFLAGS) -c -o $@ $<
 
 # 编译汇编文件
-# %.o 依赖 %.S
-%.o: %.S
-	$(CC) $(CFLAGS) -c $< -o $@
-	@echo "AS    $<"
+$K/%.o: $K/%.S
+	$(CC) $(CFLAGS) -c -o $@ $<
 
-# 包含依赖文件 (如果存在)
--include $(DEPS)
+# 运行 QEMU (默认运行模式)
+qemu: $(TARGET)
+	qemu-system-riscv64 -machine virt -bios none -kernel $(TARGET) -m 128M -smp 1 -nographic -global virtio-mmio.force-legacy=false
 
-# 运行 QEMU
-run: $(TARGET)
-	qemu-system-riscv64 -machine virt -kernel $(TARGET) -nographic
+# 调试模式 (等待 GDB 连接)
+qemu-gdb: $(TARGET)
+	qemu-system-riscv64 -machine virt -bios none -kernel $(TARGET) -m 128M -smp 1 -nographic -global virtio-mmio.force-legacy=false -S -gdb tcp::26000
 
-# 调试模式运行 (QEMU 等待 GDB 连接)
-debug: $(TARGET)
-	qemu-system-riscv64 -machine virt -kernel $(TARGET) -nographic -s -S
-
-# 反汇编 (生成 kernel.asm 用于检查编译结果)
-disasm: $(TARGET)
-	$(OBJDUMP) -S $(TARGET) > kernel/kernel.asm
-	@echo "Disassembly generated in kernel/kernel.asm"
-
-# 显示构建信息
-info:
-	@echo "Sources: $(SRCS)"
-	@echo "ASM Sources: $(ASM_SRCS)"
-	@echo "Objects: $(OBJS)"
-
+run: qemu
 # 清理构建文件
-clean:
-	rm -f kernel/*.o kernel/*.d $(TARGET) kernel/kernel.asm
-	@echo "Clean complete"
+clean: 
+	rm -f $K/*.o $K/*.d $K/*.asm $K/*.sym $(TARGET)
